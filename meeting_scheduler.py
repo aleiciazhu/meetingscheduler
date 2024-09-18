@@ -94,10 +94,9 @@ class Scheduler:
         "Eastern": -5
     }
 
-    def __init__(self, meeting_time: int):
-       """Initialize with the desired meeting time."""
-       self.meeting_time = meeting_time
-       # self.team_members = team_members
+    def __init__(self, meeting_duration: int):
+       """Initialize with the desired meeting duration."""
+       self.meeting_duration = meeting_duration
 
     def convert_timezone(self, team_members: List[TeamMember], target_timezone: str = "Eastern") -> List[TeamMember]:
         """
@@ -110,23 +109,30 @@ class Scheduler:
             for i, (start, end) in enumerate(member.getAvailability()):
                 member.availability[i] = (start + time_difference, end + time_difference)
         return team_members
-
-    def find_optimal_time(self, team_members: List[TeamMember], executive: bool = False) -> int:
+    
+    def create_availability_matrix(self, team_members: List[TeamMember]) -> np.ndarray:
         """
-        Finds the best times for a meeting by checking the availability
-        of the team members and returning the time slot with the most available members.
+        Initialize 2D numpy array to store availability and seniority of a team member at a given start time
         """
-        # Initialize 2D numpy array to store availability of a team member at a given start time taking into account meeting duration
         availability_matrix = np.zeros((24, len(team_members), 2))  # Adding another dimension for seniority
         for i, member in enumerate(team_members):
             for start, end in member.getAvailability():
                 availability_matrix[start:end, i, 0] = 1  # Mark availability
                 availability_matrix[start:end, i, 1] = member.getSeniority() - 1  # Mark seniority (0 for non-senior, 1 for senior)
+        return availability_matrix
+
+    def find_optimal_time(self, availability_matrix: np.ndarray, executive: bool = False) -> int:
+        """
+        Finds the best times for a meeting by checking the availability
+        of the team members. 
+        Return the time with the most members available if in default mode. 
+        Return time with the most seniors available if in executive mode.
+        """
         # Find the number of people and number of seniors available at each start time considering the meeting duration
         availability_count = np.zeros(24)
         senior_count = np.zeros(24)
-        for start_time in range(24 - self.meeting_time + 1):
-            end_time = start_time + self.meeting_time
+        for start_time in range(24 - self.meeting_duration + 1):
+            end_time = start_time + self.meeting_duration
             availability_count[start_time] = availability_matrix[start_time:end_time, :, 0].sum()
             senior_count[start_time] = availability_matrix[start_time:end_time, :, 1].sum()
 
@@ -135,6 +141,18 @@ class Scheduler:
             return np.argmax(availability_count)
         else:
             return np.argmax(availability_count)
+
+def get_total_members(availability_matrix: np.ndarray, start_time: int, meeting_duration: int) -> int:
+    """
+    Get the total number of members available at a given start time.
+    """
+    return availability_matrix[start_time:start_time + meeting_duration, :, 0].sum()
+
+def get_total_seniors(availability_matrix: np.ndarray, start_time: int, meeting_duration: int) -> int:
+    """
+    Get the total number of senior members available at a given start time.
+    """
+    return availability_matrix[start_time:start_time + meeting_duration, :, 1].sum()
 
 # Example usage
 member1 = TeamMember(name="Alice", availability=[(9, 11), (14, 16)], state="CA", seniority=2)
@@ -147,5 +165,9 @@ scheduler = Scheduler(meeting_time=1)
 team = scheduler.convert_timezone([member1, member2, member3])
 
 # Find the optimal meeting time
-optimal_time = scheduler.find_optimal_time(team)
-print(f"The optimal meeting time, or times for the most members is: {optimal_time}:00")
+availability_matrix = scheduler.create_availability_matrix(team)
+mode = True # Executive mode
+optimal_time = scheduler.find_optimal_time(availability_matrix, mode)
+total_members = get_total_members(availability_matrix, optimal_time, scheduler.meeting_time)
+total_seniors = get_total_seniors(availability_matrix, optimal_time, scheduler.meeting_time)
+print(f"The optimal meeting time is: {optimal_time}:00. There are {total_members} members, including {total_seniors} seniors, available.")
